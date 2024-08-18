@@ -28,25 +28,28 @@ class FunctionDependencyAnalyzer:
         print("Функции для поиска из TXT:", target_functions)
         return target_functions
 
-    def get_functions(self, schema_list):
+    def get_functions(self, schema_list, target_functions):
+        # Создаем строку для списка функций в запросе
+        func_list_str = ','.join([f"'{func}'" for func in target_functions])
         query = f"""
-        select n.nspname, pp.proname, pp.prosrc
-        from pg_catalog.pg_proc pp
-        left join pg_catalog.pg_namespace n on pronamespace = n.oid
-        where n.nspname in ({','.join(["%s"] * len(schema_list))})
-        order by pp.proname, n.nspname;
+        SELECT n.nspname, pp.proname, pp.prosrc
+        FROM pg_catalog.pg_proc pp
+        LEFT JOIN pg_catalog.pg_namespace n ON pp.pronamespace = n.oid
+        WHERE n.nspname IN ({','.join(['%s'] * len(schema_list))})
+        AND pp.proname IN ({func_list_str})
+        ORDER BY pp.proname, n.nspname;
         """
         return self.db.execute_query(query, schema_list)
 
     def find_function_dependencies(self, function_body):
-        pattern = r'\b([A-Za-z0-9_]+\.[A-Za-z0-9_]+|\b(f_[A-Za-z0-9_]+))\('  ## ('schema.function_name', '') или ('', 'f_function_name')
+        pattern = r'\b([A-Za-z0-9_]+\.[A-Za-z0-9_]+|\b(f_[A-Za-z0-9_]+))\('  # ('schema.function_name', '') или ('', 'f_function_name')
         matches = re.findall(pattern, function_body)
         extracted_funcs = [m[1] if m[1] else m[0].split('.')[1] for m in matches]
         print("Найденные зависимости:", extracted_funcs)
         return extracted_funcs
 
     def analyze_dependencies(self, schema_list, target_functions):
-        functions_df = self.get_functions(schema_list)
+        functions_df = self.get_functions(schema_list, target_functions)
 
         data_for_excel = []
         data_for_txt = []

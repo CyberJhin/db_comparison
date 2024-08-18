@@ -1,5 +1,5 @@
 from db_connection import PostgresDB
-from function_dependency_analyzer import FunctionDependencyAnalyzer
+from function_dependency_analyzer_v2 import FunctionDependencyAnalyzer
 
 def test():
     # Путь к файлу, содержащему список функций для поиска
