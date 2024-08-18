@@ -1,6 +1,6 @@
-# Database Table Comparator
+# Database Table Comparator and Function Dependency Analyzer
 
-A Python project for comparing tables in a PostgreSQL database. This tool provides functionalities to analyze and compare two tables, including checking for common rows, differences, null values, and duplicates.
+A Python project for comparing tables and analyzing function dependencies in a PostgreSQL database. This tool provides functionalities to analyze and compare two tables, including checking for common rows, differences, null values, and duplicates, as well as analyzing function dependencies within specified schemas.
 
 ## Features
 
@@ -8,6 +8,7 @@ A Python project for comparing tables in a PostgreSQL database. This tool provid
 - **Null Value Analysis**: Analyze and display the percentage of null values for each column in the tables.
 - **Duplicate Analysis**: Identify and count duplicate values in each column of the tables.
 - **Row Comparison**: Compare rows between two tables and display differences.
+- **Function Dependency Analysis**: Identify and list all functions that are called within the body of other functions in specified PostgreSQL schemas. This analysis can be outputted to both Excel and TXT files.
 
 ## Prerequisites
 
@@ -20,7 +21,7 @@ A Python project for comparing tables in a PostgreSQL database. This tool provid
 
     ```bash
     git clone https://github.com/CyberJhin/db_comparator.git
-    cd your_project_name
+    cd db_comparator
     ```
 
 2. **Create a virtual environment** (optional but recommended):
@@ -50,6 +51,8 @@ A Python project for comparing tables in a PostgreSQL database. This tool provid
 
 ## Usage
 
+### Table Comparison
+
 1. **Run the script**:
 
     ```bash
@@ -68,11 +71,37 @@ A Python project for comparing tables in a PostgreSQL database. This tool provid
 
    Modify these variables to fit your specific use case.
 
+### Function Dependency Analysis
+
+1. **Prepare the list of functions**:
+   - Create an Excel (`.xlsx`) or text (`.txt`) file with the list of functions to analyze.
+
+2. **Run the script**:
+
+    ```bash
+    python main.py
+    ```
+
+3. **Configure schemas and functions**:
+
+   In `main.py`, set the schema names and specify the path to the file containing the list of functions:
+
+    ```python
+    schema_list = ['schema1', 'schema2']
+    function_list_file = 'functions_to_analyze.xlsx'  # or 'functions_to_analyze.txt'
+    ```
+
+4. **Review the output**:
+   - The analysis will generate two output files:
+      - `function_dependencies.xlsx`: An Excel file with the dependencies listed.
+      - `function_dependencies.txt`: A text file with a simple list of found dependencies.
+
 ## Code Overview
 
 - `db_comparator/db_connection.py`: Contains the `PostgresDB` class for handling database connections and executing queries.
 - `db_comparator/comparator.py`: Contains the `TableComparator` class for comparing tables and performing various analyses.
-- `main.py`: The main entry point for running the script. Configures the database connection and performs table comparisons.
+- `db_comparator/function_dependency_analyzer.py`: Contains the `FunctionDependencyAnalyzer` class for analyzing function dependencies.
+- `main.py`: The main entry point for running the script. Configures the database connection and performs table comparisons and function dependency analysis.
 
 ## Contributing
 
@@ -82,4 +111,3 @@ A Python project for comparing tables in a PostgreSQL database. This tool provid
 4. **Commit your changes** (`git commit -am 'Add new feature'`).
 5. **Push to the branch** (`git push origin feature/your-feature`).
 6. **Create a new Pull Request**.
-

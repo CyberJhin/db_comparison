@@ -98,7 +98,7 @@ class TableComparator:
             for col in columns:
                 null_count = df[f"{col}_nulls"][0]
                 total_count = df[f"{col}_count"][0]
-                percent_nulls = (null_count / total_count * 100) if total_count > 0 else 0
+                percent_nulls = (null_count / (total_count + null_count) * 100) if (total_count + null_count) > 0 else 0
                 results.append({
                     "table": table,
                     "column": col,

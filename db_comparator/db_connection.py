@@ -27,12 +27,18 @@ class PostgresDB:
             self.conn.close()
             self.conn = None
 
-    def execute_query(self, query):
+    def execute_query(self, query, params=None):
+        """
+        Выполняет SQL-запрос и возвращает результат в виде DataFrame.
+        :param query: SQL-запрос.
+        :param params: Параметры для выполнения запроса (по умолчанию None).
+        :return: DataFrame с результатами запроса.
+        """
         if self.conn is None:
             raise ConnectionError("Database is not connected")
         try:
             with self.conn.cursor() as cursor:
-                cursor.execute(query)
+                cursor.execute(query, params)
                 colnames = [desc[0] for desc in cursor.description]
                 data = cursor.fetchall()
                 return pd.DataFrame(data, columns=colnames)
