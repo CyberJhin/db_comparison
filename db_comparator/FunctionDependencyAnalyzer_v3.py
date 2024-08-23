@@ -23,17 +23,14 @@ class FunctionDependencyAnalyzer_v3:
         print(f"\n### Поиск функций в директории {directory_path}...")
         found_functions = set()
 
-        for root, _, files in os.walk(directory_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                    for func in function_list:
-                        if func in content:
-                            found_functions.add(func)
-                            print(f"    • Функция '{func}' найдена в файле {file_path}.")
-
-        print(f"\n✓ Найдено {len(found_functions)} функций в файлах директории {directory_path}.")
+        for file in os.listdir(directory_path):
+            file_path = os.path.join(directory_path, file)
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                for func in function_list:
+                     if func in content:
+                        found_functions.add(func)
+                        print(f"    • Функция '{func}' найдена в файле {file_path}.")
         return list(found_functions)
 
     def get_function_bodies(self, schema_list, function_list):
@@ -52,7 +49,8 @@ class FunctionDependencyAnalyzer_v3:
         return functions_df
 
     def find_function_dependencies(self, function_body):
-        pattern = r'\b([A-Za-z0-9_]+\.[A-Za-z0-9_]+|\b(f_[A-Za-z0_9_]+))\('
+        pattern = r'\b([A-Za-z0-9_]+\.f_[A-Za-z0-9_]+|\b(f_[A-Za-z0-9_]+))\('
+
         matches = re.findall(pattern, function_body)
         extracted_funcs = [m[1] if m[1] else m[0].split('.')[1] for m in matches]
         return extracted_funcs
