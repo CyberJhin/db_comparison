@@ -1,77 +1,92 @@
+from datetime import date, timedelta, time, datetime
 import os
-import pandas as pd
+import psycopg2
 from db_connection import PostgresDB
+import jinja2
 
-def generate_insert_statements(df: pd.DataFrame, table_name: str) -> str:
-    """
-    Generates a string of INSERT statements from a Pandas DataFrame.
+# Шаблон для вставки данных
+TEMPLATE = """
+INSERT INTO {{ table_name }} ({{ columns }})
+VALUES {{ values }};
+"""
 
-    Args:
-        df (pd.DataFrame): DataFrame containing the data to be inserted.
-        table_name (str): Table name to insert into.
+# Функция для генерации вставок данных
+def generate_insert_statements(cursor, columns, table_name: str) -> str:
+    buffer = []
+    template = jinja2.Template(TEMPLATE)
+    for row in cursor:
+        values = []
+        for value in row:
+            if value is None:
+                values.append('NULL')
+            elif isinstance(value, str):
+                values.append(f"'{value}'")
+            elif isinstance(value, date):
+                values.append(f"'{value.strftime('%Y-%m-%d')}'")
+            elif isinstance(value, time):
+                values.append(f"'{value.strftime('%H:%M:%S')}'")
+            elif isinstance(value, datetime):
+                values.append(f"'{value.strftime('%Y-%m-%d %H:%M:%S')}'")
+            elif isinstance(value, timedelta):
+                days = value.days
+                hours, remainder = divmod(value.seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                values.append(f"'{days} days {hours:02d}:{minutes:02d}:{seconds:02d}'")
+            else:
+                values.append(str(value))
+        values_str = ', '.join(values)
+        insert_stmt = template.render(table_name=table_name, columns=columns, values=values_str)
+        buffer.append(insert_stmt)
+    return '\n'.join(buffer)
 
-    Returns:
-        str: A string of INSERT statements.
-    """
-    insert_statements = []
-    for index, row in df.iterrows():
-        values = [f"'{value}'" if isinstance(value, str) else str(value) for value in row]
-        insert_stmt = f"INSERT INTO {table_name} ({', '.join(df.columns)}) VALUES ({', '.join(values)});\n"
-        insert_statements.append(insert_stmt)
-    return ''.join(insert_statements)
-
-def write_dml_file(insert_statements: str, output_path: str) -> None:
-    """
-    Writes the INSERT statements to a file.
-
-    Args:
-        insert_statements (str): A string of INSERT statements.
-        output_path (str): Path to the file to write to.
-
-    Returns:
-        None
-    """
-    with open(output_path, 'w') as f:
+# Запись данных в файл порциями
+def write_dml_file_chunk(insert_statements: str, output_path: str, append: bool = True) -> None:
+    mode = 'a' if append else 'w'
+    with open(output_path, mode) as f:
         f.write(insert_statements)
 
-def generate_dml_file(db: PostgresDB, table_name: str, output_dir: str, output_file: str) -> None:
-    """
-    Generates a DML file to populate a table from a PostgreSQL database.
-
-    Args:
-        db (PostgresDB): Database connection object.
-        table_name (str): Table name to read from.
-        output_dir (str): Absolute path to the directory for writing the DML file.
-        output_file (str): File name for writing the DML commands.
-
-    Returns:
-        None
-    """
+# Основная функция генерации DML файла с обработкой данных по частям (batch processing)
+def generate_dml_file(db: PostgresDB, table_name: str, output_dir: str, output_file: str, batch_size: int = 10000) -> None:
     try:
-        # Establish a connection to the database
         db.connect()
 
-        # Retrieve all rows from the table
-        query = f"SELECT * FROM {table_name}"
-        df = db.execute_query(query)
+        # Обычный курсор без именованного серверного курсора
+        with db.conn.cursor() as cursor:
+            query = f"SELECT * FROM {table_name} LIMIT 500000"
+            cursor.execute(query)
 
-        # Create the output file path
-        output_path = os.path.join(output_dir, output_file)
+            # Проверяем, что запрос вернул данные
+            if cursor.description is None:
+                raise ValueError(f"Query did not return any results or failed: {query}")
 
-        # Create the directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
+            # Получаем имена столбцов
+            columns = ', '.join([desc[0] for desc in cursor.description])
 
-        # Generate the INSERT statements
-        insert_statements = generate_insert_statements(df, table_name)
+            output_path = os.path.join(output_dir, output_file)
+            os.makedirs(output_dir, exist_ok=True)
 
-        # Write the INSERT statements to the file
-        write_dml_file(insert_statements, output_path)
+            # Обработка данных по частям
+            while True:
+                rows = cursor.fetchmany(batch_size)  # Получаем порцию данных
+                if not rows:
+                    break  # Завершаем цикл, если данные закончились
 
+                # Генерация DML-запросов для текущей порции данных
+                insert_statements = generate_insert_statements(rows, columns, table_name)
+
+                # Запись DML-запросов в файл
+                write_dml_file_chunk(insert_statements, output_path, append=True)
+
+                print(f"Processed {len(rows)} rows...")  # Отладочная информация
+
+    except (psycopg2.DatabaseError, ValueError) as e:
+        print(f"Error during database operation: {e}")
+        raise
     finally:
-        # Close the database connection
         db.disconnect()
 
-# Example usage
+
+# Пример использования
 db = PostgresDB()
 output_dir = r'E:\LeetCode\db_comparator\db_comparator\Func_dict'
-generate_dml_file(db, 'public.new_table1', output_dir, 'clients_dml1.sql')
+generate_dml_file(db, 's_grnplm_ld_cib_sbc_core.my_table', output_dir, 'giga.sql', batch_size=50000)
