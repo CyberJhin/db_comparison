@@ -1,0 +1,104 @@
+WITH columns AS (
+    SELECT column_name, data_type
+    FROM information_schema.columns
+    WHERE table_name = 'sales2' AND table_schema = 'public'
+),
+data AS (
+    SELECT *
+    FROM public.sales2
+)
+SELECT 
+    'INSERT INTO public.sales2 (' || 
+    (SELECT string_agg(column_name, ', ') FROM columns) || ') VALUES (' ||
+    string_agg(
+        CASE 
+            WHEN c.data_type IN ('text', 'character varying', 'character') THEN
+                -- Обработка строковых данных
+                COALESCE('''' || REPLACE(val::text, '''', '''''') || '''', 'NULL')
+            WHEN c.data_type = 'date' THEN
+                -- Обработка даты
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'time without time zone' THEN
+                -- Обработка времени
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'timestamp without time zone' THEN
+                -- Обработка временных меток
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'interval' THEN
+                -- Обработка интервалов
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'ARRAY' THEN
+                -- Обработка массивов
+                CASE
+                    WHEN val IS NOT NULL THEN
+                        -- Преобразование массива из JSON в формат PostgreSQL
+                        '''' || REPLACE(
+                            REPLACE(val::text, '[', '{'), 
+                            ']', '}') || ''''
+                    ELSE 'NULL'
+                END
+            WHEN c.data_type IN ('double precision', 'numeric') THEN
+                -- Обработка чисел с плавающей точкой и числовых значений
+                COALESCE(val::text, 'NULL')
+            WHEN c.data_type IN ('integer', 'bigint', 'smallint') THEN
+                -- Обработка целых чисел
+                COALESCE(val::text, 'NULL')
+            ELSE 'NULL'
+        END, ', ') || ');'
+FROM data
+CROSS JOIN LATERAL json_each_text(row_to_json(data)) AS j(key, val)
+JOIN columns c ON c.column_name = j.key
+GROUP BY data.*; -- Предполагаем, что `id` является уникальным ключом
+
+---------------------------
+WITH columns AS (
+    SELECT column_name, data_type
+    FROM information_schema.columns
+    WHERE table_name = 'employees2' AND table_schema = 'public'
+),
+data AS (
+    SELECT *
+    FROM public.employees2
+)
+SELECT 
+    'INSERT INTO public.employees2 (' || 
+    (SELECT string_agg(column_name, ', ') FROM columns) || ') VALUES (' ||
+    string_agg(
+        CASE 
+            WHEN c.data_type IN ('text', 'character varying', 'character') THEN
+                -- Обработка строковых данных
+                COALESCE('''' || REPLACE(val::text, '''', '''''') || '''', 'NULL')
+            WHEN c.data_type = 'date' THEN
+                -- Обработка даты
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'time without time zone' THEN
+                -- Обработка времени
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'timestamp without time zone' THEN
+                -- Обработка временных меток
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'interval' THEN
+                -- Обработка интервалов
+                COALESCE('''' || val::text || '''', 'NULL')
+            WHEN c.data_type = 'ARRAY' THEN
+                -- Обработка массивов
+                CASE
+                    WHEN val IS NOT NULL THEN
+                        -- Преобразование массива из JSON в формат PostgreSQL
+                        '''' || REPLACE(
+                            REPLACE(val::text, '[', '{'), 
+                            ']', '}') || ''''
+                    ELSE 'NULL'
+                END
+            WHEN c.data_type IN ('double precision', 'numeric') THEN
+                -- Обработка чисел с плавающей точкой и числовых значений
+                COALESCE(val::text, 'NULL')
+            WHEN c.data_type IN ('integer', 'bigint', 'smallint') THEN
+                -- Обработка целых чисел
+                COALESCE(val::text, 'NULL')
+            ELSE 'NULL'
+        END, ', ') || ');'
+FROM data
+CROSS JOIN LATERAL json_each_text(row_to_json(data)) AS j(key, val)
+JOIN columns c ON c.column_name = j.key
+GROUP BY data.*; -- Предполагаем, что `id` является уникальным ключом
