@@ -70,7 +70,7 @@ def generate_insert_statements(rows, columns, table_name: str) -> str:
     return insert_stmt
 
 def generate_dml_file(db: PostgresDB, table_name: str, output_dir: str, output_file: str, batch_size: int = 10000) -> None:
-    query = f"SELECT * FROM {table_name} LIMIT 100"
+    query = f"SELECT * FROM {table_name} LIMIT 1000000"
     output_path = os.path.join(output_dir, output_file)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -93,4 +93,4 @@ def generate_dml_file(db: PostgresDB, table_name: str, output_dir: str, output_f
 # Пример использования
 db = PostgresDB()
 output_dir = r'E:\LeetCode\db_comparator\db_comparator\Func_dict'
-generate_dml_file(db, 's_grnplm_ld_cib_sbc_core.my_table', output_dir, 'giga.sql', batch_size=50000)
+generate_dml_file(db, 's_grnplm_ld_cib_sbc_core.my_table', output_dir, 'giga1.sql', batch_size=50000)
