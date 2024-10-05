@@ -1,263 +1,138 @@
-CREATE OR REPLACE FUNCTION generate_insert_statements(table_name text)
-RETURNS void AS $$
+CREATE OR REPLACE FUNCTION s_grnplm_ld_cib_sbc_devcore.execute_inserts(task text)
+       RETURNS void
+       LANGUAGE plpgsql
+       VOLATILE
+AS $$
+       
+       
 DECLARE
-    col_names text;
-    rec record;
-    col_values text;
-    col_name text;
-    col_type text;
-    value text;
+    dml text;
+    batch_size integer := 1;
+    batch_count integer := 0;
+    total_rows integer;
 BEGIN
-    -- Получаем список колонок
-    SELECT string_agg(quote_ident(column_name), ', ') INTO col_names
-    FROM information_schema.columns
-    WHERE table_name = table_name
-    AND table_schema = 'public';
 
-    -- Обрабатываем каждую строку из таблицы
-    FOR rec IN EXECUTE 'SELECT * FROM ' || quote_ident(table_name) LOOP
-        -- Начинаем формировать список значений для каждой строки
-        col_values := '';
+    SELECT max(batch_cnt) INTO total_rows FROM s_grnplm_ld_cib_sbc_devcore.t_tech_backup_dml_hist where task_name = task ;
 
-        -- Проходим по каждой колонке
-        FOR col_name, col_type IN
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_name = table_name
-            AND table_schema = 'public'
-        LOOP
-            -- Используем динамическое SQL для получения значения конкретной колонки
-            EXECUTE 'SELECT ' || quote_ident(col_name) || ' FROM ' || quote_ident(table_name) || ' WHERE ctid = ' || quote_literal(rec.ctid)
-            INTO value;
 
-            -- В зависимости от типа данных обрабатываем значение
-            col_values := col_values || 
-            CASE
-                WHEN col_type IN ('text', 'character varying', 'character') THEN
-                    '''' || replace(coalesce(value, 'NULL'), '''', '''''') || ''''
-                WHEN col_type = 'date' THEN
-                    COALESCE('''' || value || '''', 'NULL')
-                WHEN col_type IN ('integer', 'bigint', 'smallint', 'numeric', 'double precision') THEN
-                    COALESCE(value, 'NULL')
-                ELSE
-                    COALESCE(value, 'NULL')
-            END || ', ';
-        END LOOP;
-
-        -- Убираем последнюю запятую и пробел
-        col_values := left(col_values, length(col_values) - 2);
-
-        -- Формируем и выводим INSERT-запрос
-        RAISE NOTICE 'INSERT INTO % ( %) VALUES ( % );', table_name, col_names, col_values;
+    FOR batch_count IN 0..(total_rows)
+    loop
+       RAISE NOTICE 'Batch %', batch_count;
+             select object_dml into dml from s_grnplm_ld_cib_sbc_devcore.t_tech_backup_dml_hist where task_name = task and batch_cnt = batch_count;       
+        EXECUTE dml;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
 
 
+$$
+EXECUTE ON ANY;
 
-CREATE OR REPLACE FUNCTION generate_insert_statements(table_name1 text, limit_rows int, offset_rows int)
-RETURNS void AS $$
+
+CREATE OR REPLACE FUNCTION s_grnplm_ld_cib_sbc_devcore.generate_inserts(schema_nm text, table_nm text, task text)
+       RETURNS void
+       LANGUAGE plpgsql
+       VOLATILE
+AS $$
+       
 DECLARE
-    col_names text;
-    rec record;
-    col_values text;
-    col_name text;
-    col_type text;
-    value text;
+    CODE TEXT;
+    result_srt text;
+    batch_size integer := 25000;
+    batch_count integer := 0;
+    total_rows integer;
 BEGIN
-    -- Получаем список колонок
-    SELECT string_agg(quote_ident(column_name), ', ') INTO col_names
-    FROM information_schema.columns
-    WHERE table_name = table_name1
-    AND table_schema = 'public';
 
-    -- Обрабатываем каждую строку из таблицы с LIMIT и OFFSET
-    FOR rec IN EXECUTE format('SELECT ctid, * FROM %I ORDER BY ctid LIMIT %L OFFSET %L', table_name1, limit_rows, offset_rows) LOOP
-        col_values := '';
-
-        -- Проходим по каждой колонке
-        FOR col_name, col_type IN
-            SELECT column_name, data_type
+    EXECUTE 'SELECT COUNT(*) FROM ' || schema_nm || '.' || table_nm INTO total_rows;
+        CODE := (
+            SELECT 'SELECT string_agg(''INSERT INTO ' || table_schema || '.' || table_name ||' (' || replace(replace(array_agg(column_name::text)::text,'{',''),'}','') || ') VALUES (''||' || replace(replace(replace(array_agg('quote_nullable(' || column_name::text || ')')::text,'{',''),'}',''),',',' || '','' || ') || ' || '');'', E''\n'') ' || 'FROM (select * from ' || table_schema || '.' || table_name || ' OFFSET ' || (batch_count * batch_size) || ' LIMIT ' || batch_size || ') t;'
             FROM information_schema.columns
-            WHERE table_name = table_name1
-            AND table_schema = 'public'
-        LOOP
-            -- Используем динамическое SQL для получения значения конкретной колонки
-            EXECUTE format('SELECT %I FROM %I WHERE ctid = %L', col_name, table_name1, rec.ctid)
-            INTO value;
+            WHERE table_schema = schema_nm AND table_name = table_nm
+            GROUP BY table_schema, table_name
+        );
 
-            col_values := col_values || 
-            CASE
-                WHEN col_type IN ('text', 'character varying', 'character') THEN
-                    '''' || replace(coalesce(value, 'NULL'), '''', '''''') || ''''
-                WHEN col_type = 'date' THEN
-                    COALESCE('''' || value || '''', 'NULL')
-                WHEN col_type IN ('integer', 'bigint', 'smallint', 'numeric', 'double precision') THEN
-                    COALESCE(value, 'NULL')
-                ELSE
-                    COALESCE(value, 'NULL')
-            END || ', ';
-        END LOOP;
+    FOR batch_count IN 0..(total_rows / batch_size)
+    LOOP
+            
+        EXECUTE CODE into result_srt;
+             RAISE NOTICE 'Batch %', batch_count;
+        INSERT INTO s_grnplm_ld_cib_sbc_devcore.t_tech_backup_dml_hist (task_name, object_name,batch_cnt, object_dml, backup_date ) VALUES (task, table_nm,batch_count, result_srt, now());
 
-        -- Убираем последнюю запятую и пробел
-        col_values := left(col_values, length(col_values) - 2);
 
-        -- Формируем и выводим INSERT-запрос
-        RAISE NOTICE 'INSERT INTO %I ( %s ) VALUES ( %s );', table_name1, col_names, col_values;
+       --RETURN QUERY EXECUTE  CODE ;
+       -- EXECUTE CODE INTO result_srt;
+
+        --RAISE NOTICE 'Batch %: %', batch_count, result_srt;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+
+$$
+EXECUTE ON ANY;
 
 
-DROP FUNCTION generate_insert_statements(text,integer,integer)
 
-INSERT INTO lite ( id, column1, column2, column3, column4, column5, column6, column7, column8, column9, column10s ) VALUES ( 25384335, '61f96bcdffe404b582bb14afdf5f0232', 697, '2023-03-25', 18:58:59.89973, 2028-08-30 00:37:32.1024, 34 days, 'ae619a2d444c69b5628a13e7ddb7068b', false, 599.24, '3b0317188671b1435e649cbc157f119c's );
+--------------------------------------------------------
 
-DO $$ 
+CREATE OR REPLACE FUNCTION s_grnplm_ld_cib_sbc_devcore.generate_inserts(schema_nm text, table_nm text, task text)
+RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+AS $$
 DECLARE
-    batch_size INTEGER := 10000;
-    offset1 INTEGER := 0;
-    total_rows INTEGER;
+    CODE TEXT;
+    result_srt text;
+    batch_size integer := 5000;
+    batch_count integer;
+    total_rows integer;
 BEGIN
-    -- Узнаем общее количество строк
-    SELECT count(*) INTO total_rows FROM lite;
+    EXECUTE 'SELECT COUNT(*) FROM ' || schema_nm || '.' || table_nm INTO total_rows;
 
-    -- Пакетная обработка
-    WHILE offset1 < total_rows LOOP
-        -- Вызываем функцию для вставки значений (по одному батчу за раз)
-        PERFORM generate_insert_statements('lite', batch_size, offset1);
+    FOR batch_count IN 1..LEAST(CEIL(total_rows / batch_size), total_rows / batch_size + 1)
+    LOOP
+        CODE := (
+            SELECT 'SELECT string_agg(''INSERT INTO ' || table_schema || '.' || table_name ||' (' || replace(replace(array_agg(column_name::text)::text,'{',''),'}','') || ') VALUES (''||' || replace(replace(replace(array_agg('quote_nullable(' || column_name::text || ')')::text,'{',''),'}',''),',',' || '','' || ') || ' || '');'', E''\n'') ' || 'FROM (select * from ' || table_schema || '.' || table_name || ' OFFSET ' || ((batch_count - 1) * batch_size) || ' LIMIT ' || batch_size || ') t;'
+            FROM information_schema.columns
+            WHERE table_schema = schema_nm AND table_name = table_nm
+            GROUP BY table_schema, table_name
+        );
 
-        -- Смещаем на следующий пакет
-        offset1 := offset1 + batch_size;
+        EXECUTE CODE INTO result_srt;
+        RAISE NOTICE 'Batch %', batch_count;
+        INSERT INTO s_grnplm_ld_cib_sbc_devcore.t_tech_backup_dml_hist (task_name, object_name,batch_cnt, object_dml, backup_date ) VALUES (task, table_nm,batch_count, result_srt, now());
     END LOOP;
-END $$;
+END;
+$$;
 
 
-DO $$ 
+
+CREATE OR REPLACE FUNCTION s_grnplm_ld_cib_sbc_devcore.execute_inserts(task text)
+       RETURNS void
+       LANGUAGE plpgsql
+       VOLATILE
+AS $$
+       
 DECLARE
-    batch_size INTEGER := 10000;
-    offset1 INTEGER := 0;
-    total_rows INTEGER;
+    dml text;
+    batch_count integer := 1;
+    total_rows integer;
 BEGIN
-    -- Узнаем общее количество строк
-    SELECT count(*) INTO total_rows FROM lite;
 
-    RAISE NOTICE 'Total rows: %', total_rows;
+    SELECT max(batch_cnt) INTO total_rows 
+    FROM s_grnplm_ld_cib_sbc_devcore.t_tech_backup_dml_hist 
+    WHERE task_name = task ;
 
-    -- Пакетная обработка
-    WHILE offset1 < total_rows LOOP
-        RAISE NOTICE 'Processing batch: offset %, batch_size %', offset1, batch_size;
 
-        -- Вызываем функцию для вставки значений (по одному батчу за раз)
-        PERFORM generate_insert_statements('lite', batch_size, offset1);
-
-        -- Смещаем на следующий пакет
-        offset1 := offset1 + batch_size;
+    FOR batch_count IN 1..total_rows
+    LOOP
+       RAISE NOTICE 'Batch %', batch_count;
+       SELECT object_dml INTO dml 
+       FROM s_grnplm_ld_cib_sbc_devcore.t_tech_backup_dml_hist 
+       WHERE task_name = task AND batch_cnt = batch_count;
+       
+       IF dml IS NOT NULL THEN
+           EXECUTE dml;
+       ELSE
+           RAISE NOTICE 'No DML found for task % and batch %', task, batch_count;
+       END IF;
     END LOOP;
-
-    RAISE NOTICE 'Finished processing all batches';
-END $$;
-
-
-Таблица employees2
-id	name	salary
-1	John	3000
-2	Alice	4000
-3	Bob	5000
-Вызов функции
-Допустим, мы вызываем функцию так:
-
-sql
-Копировать код
-SELECT generate_insert_statements('employees2', 3, 0);
-Здесь:
-
-'employees2' — это таблица, для которой генерируются INSERT-запросы.
-3 — лимит на 3 строки для обработки.
-0 — смещение (начинаем с первой строки).
-Этапы формирования запроса
-Функция начинает выполнение и получает список всех колонок таблицы employees2 с помощью запроса:
-
-SELECT string_agg(quote_ident(column_name), ', ') INTO col_names
-FROM information_schema.columns
-WHERE table_name = table_name1
-AND table_schema = 'public';
-В нашем случае список колонок — это: id, name, salary.
-
-Функция выполняет динамический запрос для выборки строк:
-
-
-FOR rec IN EXECUTE format('SELECT ctid, * FROM %I ORDER BY ctid LIMIT %L OFFSET %L', table_name1, limit_rows, offset_rows) LOOP
-Здесь запрос SELECT ctid, * FROM employees2 ORDER BY ctid LIMIT 3 OFFSET 0 возвращает все строки таблицы (3 строки), и цикл FOR rec IN начинает проходить по каждой строке. Цикл будет выполняться три раза — по одной итерации для каждой строки.
-
-Обработка первой строки (id = 1, John, 3000)
-Начинается первая итерация цикла, в которой строка с id = 1 (John) записывается в переменную rec.
-
-Внутренний цикл начинает проходить по каждому столбцу строки. Столбцы в таблице: id, name, salary.
-
-Для каждого столбца:
-
-Извлекается название колонки (col_name) и её тип данных (col_type).
-Выполняется динамический запрос для получения значения столбца:
-
-EXECUTE format('SELECT %I FROM %I WHERE ctid = %L', col_name, table_name1, rec.ctid) INTO value;
-Обработка столбца id:
-
-col_name = 'id', тип данных: целое число (integer).
-Выполняется запрос:
-
-SELECT id FROM employees2 WHERE ctid = 'ctid_1';
-Это возвращает значение 1.
-Формируется значение для вставки: так как это целое число, результатом будет просто 1.
-Обработка столбца name:
-
-col_name = 'name', тип данных: текст (text).
-Выполняется запрос:
-
-SELECT name FROM employees2 WHERE ctid = 'ctid_1';
-Это возвращает значение 'John'.
-Формируется значение для вставки: так как это строка, результатом будет 'John', при этом одинарные кавычки внутри строки экранируются.
-Обработка столбца salary:
-
-col_name = 'salary', тип данных: целое число (integer).
-Выполняется запрос:
-
-SELECT salary FROM employees2 WHERE ctid = 'ctid_1';
-Это возвращает значение 3000.
-Формируется значение для вставки: просто 3000.
-Сбор значений для вставки:
-
-Значения по колонкам собираются в строку: '1', 'John', '3000'.
-Формирование INSERT-запроса:
-
-Собранные значения объединяются в запрос:
-
-INSERT INTO employees2 (id, name, salary) VALUES (1, 'John', 3000);
-Этот запрос выводится с помощью оператора RAISE NOTICE.
-Обработка второй строки (id = 2, Alice, 4000)
-Следующая итерация цикла обрабатывает строку с id = 2, по аналогии с первой строкой:
-
-Значение для id: 2.
-Значение для name: 'Alice'.
-Значение для salary: 4000.
-Формируется следующий запрос:
-
-
-INSERT INTO employees2 (id, name, salary) VALUES (2, 'Alice', 4000);
-Обработка третьей строки (id = 3, Bob, 5000)
-Последняя итерация цикла обрабатывает строку с id = 3:
-
-Значение для id: 3.
-Значение для name: 'Bob'.
-Значение для salary: 5000.
-Формируется следующий запрос:
-
-
-INSERT INTO employees2 (id, name, salary) VALUES (3, 'Bob', 5000);
-Финальный результат
-После завершения всех итераций мы получаем следующие запросы:
-
-INSERT INTO employees2 (id, name, salary) VALUES (1, 'John', 3000);
-INSERT INTO employees2 (id, name, salary) VALUES (2, 'Alice', 4000);
-INSERT INTO employees2 (id, name, salary) VALUES (3, 'Bob', 5000);
-Таким образом, функция генерирует запросы INSERT для всех строк таблицы, проходя через каждую колонку в цикле, чтобы собрать значения для вставки.
+END;
+$$;
